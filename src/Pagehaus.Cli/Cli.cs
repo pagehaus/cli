@@ -16,6 +16,11 @@ public static class Cli
               Preview the site at http://localhost:8080 as Pagehaus serves it: Server Side Includes,
               index pages, your 404.html. Pages reload in the browser when you save a file.
 
+          pagehaus check [folder] [--strict]
+              Find broken links and missing files, links whose case doesn't match the file
+              (Team.JPG linked as team.jpg), files too big, pages without a title or description.
+              Exit status 1 if there are problems (with --strict, warnings too): ready for CI.
+
           pagehaus --version
           pagehaus help
 
@@ -38,6 +43,9 @@ public static class Cli
                     var options = new Options(rest, flags: ["--open", "--no-reload"], values: ["--port"]);
                     return await Serve.ServeCommand.RunAsync(options.Folder, options.Int("--port") ?? 8080,
                         options.Has("--open"), reload: !options.Has("--no-reload"));
+                case ["check", .. var rest]:
+                    var check = new Options(rest, flags: ["--strict"], values: []);
+                    return await Check.CheckCommand.RunAsync(check.Folder, check.Has("--strict"), Console.Out);
                 default:
                     Console.Error.WriteLine($"Unknown command \"{args[0]}\". Run pagehaus help to see the commands.");
                     return 2;

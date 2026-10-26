@@ -5,10 +5,32 @@ Preview, check and deploy plain HTML websites from the command line.
 ```
 pagehaus serve [folder]     preview the site at http://localhost:8080, with Server Side Includes,
                             reloading the page when you save a file
+pagehaus check [folder]     find broken links, missing files, links whose case doesn't match the file,
+                            files too big, pages without a title or description
 ```
 
-Coming next: `pagehaus check` (broken links, missing files, `Image.JPG` linked as `image.jpg`) and
-`pagehaus deploy` (upload the folder to your [Pagehaus](https://pagehaus.app) site).
+Coming next: `pagehaus deploy` (upload the folder to your [Pagehaus](https://pagehaus.app) site).
+
+## Checking a site
+
+```
+$ pagehaus check
+Checked /Users/sam/bakery: 5 pages, 7 files.
+
+problem: links to /contact.html, which doesn't exist.
+         in about.html, blog/first.html, blog/second.html and 1 more
+problem: links to /img/team.jpg, but the file is named img/Team.JPG. That works on Windows and Mac, not on a web server: the case must match.
+         in about.html, blog/first.html, blog/second.html and 1 more
+problem: menu.html: links to file:///C:/Users/sam/Desktop/menu.pdf, which is on your computer: visitors can't reach it.
+warning: menu.html: no <title>: search results and browser tabs show the address instead.
+
+3 problems, 1 warning.
+```
+
+Pages are checked with their Server Side Includes filled in, so a broken link in a shared header is reported once,
+with the pages it's on. File names are compared exactly, as a web server does, even on a Mac or Windows disk that
+doesn't mind the case. The exit status is 1 when there are problems (with `--strict`, warnings too), so `check` can
+stop a CI build. It works on any static site, not only Pagehaus ones.
 
 ## Server Side Includes
 
