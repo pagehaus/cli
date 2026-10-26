@@ -1,0 +1,8 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <IsAotCompatible>true</IsAotCompatible>
+    <PackageId>Pagehaus.Ssi</PackageId>
+    <Description>Server Side Includes as Apache's mod_include does them (include, echo, set, config, flastmod, fsize; no exec), with limits that keep untrusted pages safe. The engine Pagehaus hosting uses.</Description>
+    <PackageTags>ssi;server-side-includes;shtml;html;static-site</PackageTags>
+  </PropertyGroup>
+</Project>

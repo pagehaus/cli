@@ -1,0 +1,17 @@
+<Project Sdk="Microsoft.NET.Sdk.Web">
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <AssemblyName>pagehaus</AssemblyName>
+    <RootNamespace>Pagehaus.Cli</RootNamespace>
+    <IsAotCompatible>true</IsAotCompatible>
+    <InvariantGlobalization>false</InvariantGlobalization>
+    <PackAsTool>true</PackAsTool>
+    <ToolCommandName>pagehaus</ToolCommandName>
+    <PackageId>pagehaus</PackageId>
+    <Description>Preview plain HTML sites with Server Side Includes, check them for broken links, and deploy them to Pagehaus.</Description>
+    <PackageTags>html;ssi;static-site;cli;preview;link-checker;pagehaus</PackageTags>
+  </PropertyGroup>
+  <ItemGroup>
+    <ProjectReference Include="../Pagehaus.Ssi/Pagehaus.Ssi.csproj" />
+  </ItemGroup>
+</Project>
