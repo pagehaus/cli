@@ -50,7 +50,8 @@ jobs:
           if [ "${{ runner.os }}" = Windows ]; then
             cp out/pagehaus.exe pkg/ && (cd pkg && 7z a "../pagehaus-${{ matrix.rid }}.zip" . >/dev/null)
           else
-            cp out/pagehaus pkg/ && tar -czf "pagehaus-${{ matrix.rid }}.tar.gz" -C pkg .
+            # Named, not ".": entries without "./", so "tar -xz pagehaus" finds the file with GNU tar too.
+            cp out/pagehaus pkg/ && tar -czf "pagehaus-${{ matrix.rid }}.tar.gz" -C pkg pagehaus LICENSE README.md
           fi
       - name: Run it
         if: matrix.rid != 'osx-x64'   # an Intel binary on an Apple silicon runner
