@@ -51,7 +51,8 @@ $ pagehaus deploy
 
 `deploy` runs `check` first and stops if it finds problems (`--force` deploys anyway). It uploads every file except
 hidden ones (`.git`, `.env`...); files you deleted locally stay on the site, so delete those in the dashboard. With
-several sites, say which: `--site bakery`. In CI, set `PAGEHAUS_TOKEN` instead of logging in. The saved token is in
+several sites, say which: `--site bakery`. In CI, set `PAGEHAUS_TOKEN` instead of logging in. On GitHub, the
+[Deploy to Pagehaus](https://github.com/marketplace/actions/deploy-to-pagehaus) action does it all in three lines. The saved token is in
 `~/.config/pagehaus/config.json` (`%APPDATA%\pagehaus\config.json` on Windows), readable only by you.
 
 ## Server Side Includes
