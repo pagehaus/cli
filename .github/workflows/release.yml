@@ -1,5 +1,7 @@
 # A version tag (git tag v0.1.0 && git push origin v0.1.0) publishes a release:
-#   - a single-file download per platform (Native AOT: no .NET needed), attached to a GitHub release with checksums
+#   - a single-file download per platform (Native AOT: no .NET needed), attached to a GitHub release with checksums.
+#     The names have no version, so .../releases/latest/download/pagehaus-osx-arm64.tar.gz is always the newest
+#     (pagehaus.app/cli links there).
 #   - the pagehaus tool and the Pagehaus.Ssi library on NuGet (trusted publishing: no stored API key; the nuget.org
 #     policy names this file, release.yml, and the NUGET_USER secret holds the nuget.org username)
 name: Release
@@ -46,9 +48,9 @@ jobs:
           dotnet publish src/Pagehaus.Cli -c Release -r ${{ matrix.rid }} -p:PublishAot=true -p:Version="$version" -o out
           mkdir pkg && cp LICENSE README.md pkg/
           if [ "${{ runner.os }}" = Windows ]; then
-            cp out/pagehaus.exe pkg/ && (cd pkg && 7z a "../pagehaus-$version-${{ matrix.rid }}.zip" . >/dev/null)
+            cp out/pagehaus.exe pkg/ && (cd pkg && 7z a "../pagehaus-${{ matrix.rid }}.zip" . >/dev/null)
           else
-            cp out/pagehaus pkg/ && tar -czf "pagehaus-$version-${{ matrix.rid }}.tar.gz" -C pkg .
+            cp out/pagehaus pkg/ && tar -czf "pagehaus-${{ matrix.rid }}.tar.gz" -C pkg .
           fi
       - name: Run it
         if: matrix.rid != 'osx-x64'   # an Intel binary on an Apple silicon runner
