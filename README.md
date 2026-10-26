@@ -36,7 +36,7 @@ stop a CI build. It works on any static site, not only Pagehaus ones.
 
 ```
 $ pagehaus login
-Make an API token at https://pagehaus.app/account/api ("Site files" is enough for deploy), then paste it here.
+Make an API token at https://pagehaus.app/account/api (for Access, choose "yoursite: read and write"), then paste it here.
 Token:
 Logged in with "laptop" (site bakery, can deploy).
 

@@ -7,7 +7,7 @@ public static class LoginCommand
 {
     public static async Task<int> RunAsync()
     {
-        Console.WriteLine($"Make an API token at {Config.Url}/account/api (\"Site files\" is enough for deploy), then paste it here.");
+        Console.WriteLine($"Make an API token at {Config.Url}/account/api (for Access, choose \"yoursite: read and write\"), then paste it here.");
         Console.Write("Token: ");
         var token = ReadSecret().Trim();
         if (!(token.StartsWith("ph_", StringComparison.Ordinal) && token.Length == 46))
