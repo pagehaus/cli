@@ -99,6 +99,7 @@ jobs:
           cat > notes.md <<EOF
           ## Install
 
+          - **Homebrew** (macOS, Linux): \`brew install pagehaus/tap/pagehaus\` (the tap updates within a day)
           - **With .NET:** \`dotnet tool install -g pagehaus\`
           - **Or download** the file for your computer below, unpack it and put \`pagehaus\` somewhere on your PATH.
             On a Mac, a file downloaded with a browser needs \`xattr -d com.apple.quarantine pagehaus\` once.

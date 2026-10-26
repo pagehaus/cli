@@ -32,6 +32,17 @@ with the pages it's on. File names are compared exactly, as a web server does, e
 doesn't mind the case. The exit status is 1 when there are problems (with `--strict`, warnings too), so `check` can
 stop a CI build. It works on any static site, not only Pagehaus ones.
 
+## Install
+
+- **Homebrew** (macOS, Linux): `brew install pagehaus/tap/pagehaus`
+- **With .NET**: `dotnet tool install -g pagehaus`
+- **Or download** the file for your computer from the [latest release](https://github.com/pagehaus/cli/releases/latest)
+  (Windows, macOS, Linux; no .NET needed), unpack it and put `pagehaus` on your PATH. On macOS or Linux:
+  ```
+  curl -L https://github.com/pagehaus/cli/releases/latest/download/pagehaus-osx-arm64.tar.gz | tar -xz pagehaus
+  ```
+  (`osx-x64` for Intel Macs, `linux-x64` or `linux-arm64` for Linux.)
+
 ## Deploying to Pagehaus
 
 ```
