@@ -50,6 +50,21 @@ public static class SitePath
         return full;
     }
 
+    /// <summary>
+    /// Whether a folder or file on the way from <paramref name="root"/> to <paramref name="relative"/>, the file itself
+    /// included, is a symbolic link. One lstat per part of the path.
+    /// </summary>
+    public static bool HasLink(string root, string relative)
+    {
+        var path = Path.GetFullPath(root);
+        foreach (var seg in relative.Split('/', StringSplitOptions.RemoveEmptyEntries))
+        {
+            path = Path.Combine(path, seg);
+            if (new FileInfo(path).LinkTarget is not null) return true;
+        }
+        return false;
+    }
+
     public static string Parent(string relative)
     {
         var i = relative.LastIndexOf('/');

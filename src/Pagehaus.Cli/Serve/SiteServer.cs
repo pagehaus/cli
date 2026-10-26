@@ -101,6 +101,7 @@ public sealed class SiteServer(string root, SsiProcessor ssi, LiveReload? reload
             DocumentPath = rel,
             Host = ctx.Request.Host.Host,
             QueryString = ctx.Request.QueryString.Value ?? "",
+            FollowLinks = true, // your own computer: deploy uploads what a link points to
         });
         if (reload is not null) html = LiveReload.AddScript(html);
         if (!HttpMethods.IsHead(ctx.Request.Method)) await ctx.Response.WriteAsync(html);

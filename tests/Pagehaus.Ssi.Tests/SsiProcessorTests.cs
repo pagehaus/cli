@@ -114,4 +114,27 @@ public sealed class SsiProcessorTests : IDisposable
         const string html = "<p>Hello <!-- normal comment --></p>";
         Assert.Equal(html, await Run(html));
     }
+
+    [Fact]
+    public async Task Symbolic_links_are_refused_unless_followed_on_purpose()
+    {
+        var outside = Directory.CreateTempSubdirectory("ph-ssi-outside").FullName;
+        try
+        {
+            File.WriteAllText(Path.Combine(outside, "secret.html"), "SECRET");
+            File.CreateSymbolicLink(Path.Combine(_root, "linked.html"), Path.Combine(outside, "secret.html"));
+            Directory.CreateSymbolicLink(Path.Combine(_root, "shared"), outside);
+            const string page = """<!--#include virtual="/linked.html" -->|<!--#include virtual="/shared/secret.html" -->|<!--#fsize virtual="/linked.html" -->""";
+
+            var error = "[an error occurred while processing this directive]";
+            Assert.Equal($"{error}|{error}|{error}", await Run(page));
+
+            var followed = await _ssi.ProcessAsync(page, new SsiContext { SiteRoot = _root, DocumentPath = "index.html", FollowLinks = true });
+            Assert.Equal("SECRET|SECRET|6", followed);
+        }
+        finally
+        {
+            Directory.Delete(outside, recursive: true);
+        }
+    }
 }

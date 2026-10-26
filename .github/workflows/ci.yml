@@ -1,0 +1,51 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: 10.0.x
+      - run: dotnet test
+
+  # The two ways to ship one small file: trimmed single-file, and Native AOT. Build both and make sure they run.
+  standalone:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        build: [trimmed, aot]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: 10.0.x
+      - name: Publish
+        run: |
+          if [ "${{ matrix.build }}" = aot ]; then flags="-p:PublishAot=true"; else flags="--self-contained -p:PublishSingleFile=true -p:PublishTrimmed=true"; fi
+          dotnet publish src/Pagehaus.Cli -c Release -r linux-x64 $flags -o out
+          ls -la out
+      - name: Run it
+        run: |
+          out/pagehaus --version
+          mkdir -p site/includes
+          echo '<h1><!--#include virtual="/includes/name.html" --></h1>' > site/index.html
+          echo 'Pagehaus' > site/includes/name.html
+          out/pagehaus serve site --port 8099 --no-reload &
+          for i in $(seq 1 30); do curl -sf http://localhost:8099/ && break; sleep 0.5; done | tee page.html
+          grep -q '<h1>Pagehaus' page.html
+          kill %1

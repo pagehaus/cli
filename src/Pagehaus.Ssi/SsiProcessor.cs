@@ -15,6 +15,12 @@ public sealed class SsiContext
 
     public string Host { get; init; } = "";
     public string QueryString { get; init; } = "";
+
+    /// <summary>
+    /// Whether includes may go through symbolic links. Off by default: on a host, a link could point anywhere, another
+    /// site's password-protected files included. On your own computer (pagehaus serve) links are yours to use.
+    /// </summary>
+    public bool FollowLinks { get; init; }
     public TimeZoneInfo TimeZone { get; init; } = TimeZoneInfo.Local;
     public DateTimeOffset Now { get; init; } = DateTimeOffset.UtcNow;
 
@@ -111,8 +117,8 @@ public sealed partial class SsiProcessor
                 var target = ResolveTarget(attrs[0], ctx, currentFile);
                 if (target is null) return null;
                 var disk = SitePath.ToDisk(ctx.SiteRoot, target);
-                var info = new FileInfo(disk);
-                if (!info.Exists || info.Length > MaxIncludeBytes) return null;
+                var info = Info(disk, ctx);
+                if (!info.Exists || info.Length > MaxIncludeBytes || Linked(ctx, target)) return null;
                 var text = await File.ReadAllTextAsync(disk);
                 return IsSsiFile(target) ? await ProcessAsync(text, ctx, target, depth + 1) : text;
             }
@@ -163,8 +169,8 @@ public sealed partial class SsiProcessor
                 if (attrs.Count == 0) return null;
                 var target = ResolveTarget(attrs[0], ctx, currentFile);
                 if (target is null) return null;
-                var info = new FileInfo(SitePath.ToDisk(ctx.SiteRoot, target));
-                if (!info.Exists) return null;
+                var info = Info(SitePath.ToDisk(ctx.SiteRoot, target), ctx);
+                if (!info.Exists || Linked(ctx, target)) return null;
                 return directive == "fsize"
                     ? FormatSize(info.Length, ctx.SizeFmt)
                     : Strftime.Format(ToZone(info.LastWriteTimeUtc, ctx), ctx.TimeFmt);
@@ -213,13 +219,24 @@ public sealed partial class SsiProcessor
             "DOCUMENT_URI" => "/" + ctx.DocumentPath,
             // A page that isn't saved yet (the blog editor's preview) was last modified now.
             "LAST_MODIFIED" => Strftime.Format(
-                File.Exists(SitePath.ToDisk(ctx.SiteRoot, ctx.DocumentPath))
-                    ? ToZone(File.GetLastWriteTimeUtc(SitePath.ToDisk(ctx.SiteRoot, ctx.DocumentPath)), ctx)
+                File.Exists(SitePath.ToDisk(ctx.SiteRoot, ctx.DocumentPath)) && !Linked(ctx, ctx.DocumentPath)
+                    ? ToZone(Info(SitePath.ToDisk(ctx.SiteRoot, ctx.DocumentPath), ctx).LastWriteTimeUtc, ctx)
                     : TimeZoneInfo.ConvertTime(ctx.Now, ctx.TimeZone), ctx.TimeFmt),
             "QUERY_STRING" => ctx.QueryString.TrimStart('?'),
             "HTTP_HOST" or "SERVER_NAME" => ctx.Host,
             _ => null,
         };
+    }
+
+    private static bool Linked(SsiContext ctx, string target) => !ctx.FollowLinks && SitePath.HasLink(ctx.SiteRoot, target);
+
+    /// <summary>The file's details; through a link (when links are followed), those of the file it points to.</summary>
+    private static FileInfo Info(string disk, SsiContext ctx)
+    {
+        var info = new FileInfo(disk);
+        return ctx.FollowLinks && info.LinkTarget is not null && info.ResolveLinkTarget(returnFinalTarget: true) is FileInfo target
+            ? target
+            : info;
     }
 
     private static string Substitute(string value, SsiContext ctx, string currentFile) =>
