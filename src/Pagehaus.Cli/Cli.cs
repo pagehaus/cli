@@ -21,6 +21,15 @@ public static class Cli
               (Team.JPG linked as team.jpg), files too big, pages without a title or description.
               Exit status 1 if there are problems (with --strict, warnings too): ready for CI.
 
+          pagehaus login
+              Save an API token from pagehaus.app/account/api, for deploy. (Or set PAGEHAUS_TOKEN.)
+
+          pagehaus deploy [folder] [--site name] [--dry-run] [--force]
+              Upload the folder to your Pagehaus site: new and changed files are written; files you
+              deleted here stay on the site. Runs check first and stops on problems unless --force.
+              --dry-run shows what would change. --site can be left out if you have one site.
+
+          pagehaus logout
           pagehaus --version
           pagehaus help
 
@@ -46,6 +55,14 @@ public static class Cli
                 case ["check", .. var rest]:
                     var check = new Options(rest, flags: ["--strict"], values: []);
                     return await Check.CheckCommand.RunAsync(check.Folder, check.Has("--strict"), Console.Out);
+                case ["login"]:
+                    return await Deploy.LoginCommand.RunAsync();
+                case ["logout"]:
+                    return Deploy.LoginCommand.Logout();
+                case ["deploy", .. var rest]:
+                    var deploy = new Options(rest, flags: ["--dry-run", "--force"], values: ["--site"]);
+                    return await Deploy.DeployCommand.RunAsync(deploy.Folder, deploy.Value("--site"), deploy.Has("--dry-run"),
+                        deploy.Has("--force"), Console.Out);
                 default:
                     Console.Error.WriteLine($"Unknown command \"{args[0]}\". Run pagehaus help to see the commands.");
                     return 2;

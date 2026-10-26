@@ -7,9 +7,9 @@ pagehaus serve [folder]     preview the site at http://localhost:8080, with Serv
                             reloading the page when you save a file
 pagehaus check [folder]     find broken links, missing files, links whose case doesn't match the file,
                             files too big, pages without a title or description
+pagehaus login              save an API token for deploy
+pagehaus deploy [folder]    upload the folder to your Pagehaus site
 ```
-
-Coming next: `pagehaus deploy` (upload the folder to your [Pagehaus](https://pagehaus.app) site).
 
 ## Checking a site
 
@@ -31,6 +31,28 @@ Pages are checked with their Server Side Includes filled in, so a broken link in
 with the pages it's on. File names are compared exactly, as a web server does, even on a Mac or Windows disk that
 doesn't mind the case. The exit status is 1 when there are problems (with `--strict`, warnings too), so `check` can
 stop a CI build. It works on any static site, not only Pagehaus ones.
+
+## Deploying to Pagehaus
+
+```
+$ pagehaus login
+Make an API token at https://pagehaus.app/account/api ("Site files" is enough for deploy), then paste it here.
+Token:
+Logged in with "laptop" (site bakery, can deploy).
+
+$ pagehaus deploy --dry-run
+Checking what would change on bakery: 12 files, 84.2 KB zipped...
+  2 new (would be written): /menu.html, /img/croissant.jpg
+  10 replaced (would be written): /index.html, /style.css, ...
+Dry run: nothing was changed. Run without --dry-run to deploy.
+
+$ pagehaus deploy
+```
+
+`deploy` runs `check` first and stops if it finds problems (`--force` deploys anyway). It uploads every file except
+hidden ones (`.git`, `.env`...); files you deleted locally stay on the site, so delete those in the dashboard. With
+several sites, say which: `--site bakery`. In CI, set `PAGEHAUS_TOKEN` instead of logging in. The saved token is in
+`~/.config/pagehaus/config.json` (`%APPDATA%\pagehaus\config.json` on Windows), readable only by you.
 
 ## Server Side Includes
 
