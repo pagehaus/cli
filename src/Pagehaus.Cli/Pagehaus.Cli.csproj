@@ -5,6 +5,7 @@
     <RootNamespace>Pagehaus.Cli</RootNamespace>
     <IsAotCompatible>true</IsAotCompatible>
     <InvariantGlobalization>false</InvariantGlobalization>
+    <IsPackable>true</IsPackable>
     <PackAsTool>true</PackAsTool>
     <ToolCommandName>pagehaus</ToolCommandName>
     <PackageId>pagehaus</PackageId>

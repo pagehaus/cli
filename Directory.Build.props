@@ -11,5 +11,9 @@
     <PackageProjectUrl>https://github.com/pagehaus/cli</PackageProjectUrl>
     <RepositoryUrl>https://github.com/pagehaus/cli</RepositoryUrl>
     <Version>0.1.0</Version>
+    <PackageReadmeFile>README.md</PackageReadmeFile>
   </PropertyGroup>
+  <ItemGroup Condition="'$(IsPackable)' != 'false'">
+    <None Include="$(MSBuildThisFileDirectory)README.md" Pack="true" PackagePath="/" Visible="false" />
+  </ItemGroup>
 </Project>

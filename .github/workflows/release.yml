@@ -1,0 +1,105 @@
+# A version tag (git tag v0.1.0 && git push origin v0.1.0) publishes a release:
+#   - a single-file download per platform (Native AOT: no .NET needed), attached to a GitHub release with checksums
+#   - the pagehaus tool and the Pagehaus.Ssi library on NuGet (trusted publishing: no stored API key; the nuget.org
+#     policy names this file, release.yml, and the NUGET_USER secret holds the nuget.org username)
+name: Release
+
+on:
+  push:
+    tags: ["v*"]
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: 10.0.x
+      - run: dotnet test
+
+  binaries:
+    needs: test
+    strategy:
+      matrix:
+        include:
+          - { rid: linux-x64, os: ubuntu-latest }
+          - { rid: linux-arm64, os: ubuntu-24.04-arm }
+          - { rid: osx-arm64, os: macos-latest }
+          - { rid: osx-x64, os: macos-latest }   # cross-compiled on Apple silicon
+          - { rid: win-x64, os: windows-latest }
+    runs-on: ${{ matrix.os }}
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: 10.0.x
+      - name: Publish
+        run: |
+          version="${GITHUB_REF_NAME#v}"
+          dotnet publish src/Pagehaus.Cli -c Release -r ${{ matrix.rid }} -p:PublishAot=true -p:Version="$version" -o out
+          mkdir pkg && cp LICENSE README.md pkg/
+          if [ "${{ runner.os }}" = Windows ]; then
+            cp out/pagehaus.exe pkg/ && (cd pkg && 7z a "../pagehaus-$version-${{ matrix.rid }}.zip" . >/dev/null)
+          else
+            cp out/pagehaus pkg/ && tar -czf "pagehaus-$version-${{ matrix.rid }}.tar.gz" -C pkg .
+          fi
+      - name: Run it
+        if: matrix.rid != 'osx-x64'   # an Intel binary on an Apple silicon runner
+        run: pkg/pagehaus* --version
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.rid }}
+          path: pagehaus-*
+
+  publish:
+    needs: binaries
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write   # the GitHub release
+      id-token: write   # NuGet trusted publishing
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: 10.0.x
+      - name: Pack
+        run: dotnet pack -c Release -p:Version="${GITHUB_REF_NAME#v}" -o nupkgs
+      - uses: actions/download-artifact@v4
+        with:
+          path: dist
+          merge-multiple: true
+      - name: Checksums
+        run: cd dist && sha256sum pagehaus-* > SHA256SUMS && cat SHA256SUMS
+      - name: NuGet login
+        uses: NuGet/login@v1
+        id: nuget
+        with:
+          user: ${{ secrets.NUGET_USER }}
+      - name: NuGet push
+        run: |
+          for package in nupkgs/Pagehaus.Ssi.*.nupkg nupkgs/pagehaus.*.nupkg; do
+            dotnet nuget push "$package" --api-key "${{ steps.nuget.outputs.NUGET_API_KEY }}" \
+              --source https://api.nuget.org/v3/index.json --skip-duplicate
+          done
+      - name: GitHub release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          version="${GITHUB_REF_NAME#v}"
+          cat > notes.md <<EOF
+          ## Install
+
+          - **With .NET:** \`dotnet tool install -g pagehaus\`
+          - **Or download** the file for your computer below, unpack it and put \`pagehaus\` somewhere on your PATH.
+            On a Mac, a file downloaded with a browser needs \`xattr -d com.apple.quarantine pagehaus\` once.
+
+          Check the downloads against \`SHA256SUMS\`.
+          EOF
+          gh release create "$GITHUB_REF_NAME" dist/* --title "pagehaus $version" --notes-file notes.md --generate-notes
