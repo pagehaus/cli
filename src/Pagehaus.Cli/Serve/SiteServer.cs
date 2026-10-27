@@ -14,6 +14,11 @@ public sealed class SiteServer(string root, SsiProcessor ssi, LiveReload? reload
 {
     private static readonly FileExtensionContentTypeProvider ContentTypes = CreateContentTypes();
 
+    /// <summary>What visitor counters show here: the real number only exists online.</summary>
+    public const long SampleVisitors = 1234;
+
+    private int _counterNoted;
+
     public string Root { get; } = Path.GetFullPath(root);
 
     public async Task HandleAsync(HttpContext ctx)
@@ -102,9 +107,17 @@ public sealed class SiteServer(string root, SsiProcessor ssi, LiveReload? reload
             Host = ctx.Request.Host.Host,
             QueryString = ctx.Request.QueryString.Value ?? "",
             FollowLinks = true, // your own computer: deploy uploads what a link points to
+            VisitorCount = SampleCount,
         });
         if (reload is not null) html = LiveReload.AddScript(html);
         if (!HttpMethods.IsHead(ctx.Request.Method)) await ctx.Response.WriteAsync(html);
+    }
+
+    private ValueTask<long> SampleCount()
+    {
+        if (Interlocked.Exchange(ref _counterNoted, 1) == 0)
+            Console.WriteLine($"Visitor counters show a sample number ({SampleVisitors:N0}); the real one appears online.");
+        return ValueTask.FromResult(SampleVisitors);
     }
 
     private async Task NotFoundAsync(HttpContext ctx)

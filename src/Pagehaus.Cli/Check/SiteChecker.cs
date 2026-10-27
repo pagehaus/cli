@@ -90,7 +90,11 @@ public sealed partial class SiteChecker(SsiProcessor ssi)
                 if (site.ExistsIgnoringCase(target) is { } actual)
                     Add(Severity.Problem, $"includes {value}, but the file is named {actual}. That works on Windows and Mac, not on a web server: the case must match.", rel);
             }
-            var ctx = new SsiContext { SiteRoot = root, DocumentPath = rel, Host = "localhost", FollowLinks = true };
+            var ctx = new SsiContext
+            {
+                SiteRoot = root, DocumentPath = rel, Host = "localhost", FollowLinks = true,
+                VisitorCount = () => ValueTask.FromResult(Serve.SiteServer.SampleVisitors), // so only a malformed counter fails
+            };
             // Includes processed first; the comments left are only comments ("replace this with <img src=...>").
             var html = HtmlComment().Replace(await ssi.ProcessAsync(raw, ctx), "");
             if (!WholePage().IsMatch(html)) continue; // a piece of a page (an include): checked as part of the pages using it

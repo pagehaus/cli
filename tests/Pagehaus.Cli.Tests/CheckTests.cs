@@ -122,4 +122,15 @@ public sealed class CheckTests : IDisposable
         Write("about.html", Page("""<a href="gone.html">x</a>"""));
         Assert.Equal(1, await CheckCommand.RunAsync(_root, strict: false, new StringWriter()));
     }
+
+    [Fact]
+    public async Task Counters_are_fine_unless_malformed()
+    {
+        Write("index.html", Page("""<p>Visitor <!--#counter --></p> <a href="bad.html">Bad</a>"""));
+        Write("bad.html", Page("""<p>Visitor <!--#counter start="lots" --></p>"""));
+
+        var finding = Assert.Single(await CheckAsync());
+        Assert.Equal("bad.html", finding.Files.Single());
+        Assert.Contains("Server Side Include failed", finding.Message);
+    }
 }

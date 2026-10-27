@@ -137,4 +137,51 @@ public sealed class SsiProcessorTests : IDisposable
             Directory.Delete(outside, recursive: true);
         }
     }
+
+    private async Task<(string Html, int Lookups)> Count(string content, long total, string doc = "index.html")
+    {
+        var lookups = 0;
+        var html = await _ssi.ProcessAsync(content, new SsiContext
+        {
+            SiteRoot = _root, DocumentPath = doc,
+            VisitorCount = () => { lookups++; return ValueTask.FromResult(total); },
+        });
+        return (html, lookups);
+    }
+
+    [Theory]
+    [InlineData("<!--#counter -->", 7, "7")]
+    [InlineData("<!--#counter -->", 12345, "12,345")]
+    [InlineData("<!--#counter -->", 1234567, "1,234,567")]
+    [InlineData("<!--#counter start=\"1000\" -->", 234, "1,234")]
+    [InlineData("<!--#counter separator=\"\" -->", 12345, "12345")]
+    [InlineData("<!--#counter separator=\".\" -->", 1234567, "1.234.567")]
+    [InlineData("<!--#counter separator=\" \" start=\"1000000000\" -->", 0, "1 000 000 000")]
+    [InlineData("<!--#counter separator=\"<\" -->", 1000, "1&lt;000")]
+    public async Task Counter_shows_the_total_with_separators(string directive, long total, string expected) =>
+        Assert.Equal(expected, (await Count(directive, total)).Html);
+
+    [Theory]
+    [InlineData("<!--#counter start=\"lots\" -->")]
+    [InlineData("<!--#counter start=\"-5\" -->")]
+    [InlineData("<!--#counter start=\"1000000001\" -->")]
+    [InlineData("<!--#counter start=\"1e6\" -->")]
+    [InlineData("<!--#counter separator=\"::\" -->")]
+    [InlineData("<!--#counter theme=\"odometer\" -->")]
+    [InlineData("<!--#counter color=\"red;background:url(x)\" -->")]
+    public async Task Counter_with_a_bad_attribute_shows_the_error_message(string directive) =>
+        Assert.Equal("[an error occurred while processing this directive]", (await Count(directive, 5)).Html);
+
+    [Fact]
+    public async Task Counter_without_a_total_shows_the_error_message() =>
+        Assert.Equal("[an error occurred while processing this directive]", await Run("<!--#counter -->"));
+
+    [Fact]
+    public async Task Counters_in_the_page_and_its_includes_ask_for_the_total_once()
+    {
+        Write("inc/footer.html", "<footer><!--#counter --></footer>");
+        var (html, lookups) = await Count("<p><!--#counter start=\"100\" --></p><!--#include virtual=\"/inc/footer.html\" -->", 41);
+        Assert.Equal("<p>141</p><footer>41</footer>", html);
+        Assert.Equal(1, lookups);
+    }
 }

@@ -24,18 +24,26 @@ public sealed class SsiContext
     public TimeZoneInfo TimeZone { get; init; } = TimeZoneInfo.Local;
     public DateTimeOffset Now { get; init; } = DateTimeOffset.UtcNow;
 
+    /// <summary>
+    /// The site's visitor total for <c>#counter</c>, asked at most once per page. Null where there's no total to show:
+    /// the directive is then an error, rather than a made-up number.
+    /// </summary>
+    public Func<ValueTask<long>>? VisitorCount { get; init; }
+
     internal Dictionary<string, string> Vars { get; } = new(StringComparer.Ordinal);
     internal string TimeFmt { get; set; } = "%A, %d-%b-%Y %H:%M:%S %Z";
     internal string SizeFmt { get; set; } = "abbrev";
     internal string ErrMsg { get; set; } = "[an error occurred while processing this directive]";
     internal string EchoMsg { get; set; } = "(none)";
     internal int OutputBytes { get; set; }
+    internal long? Visitors { get; set; }
     public int Directives { get; internal set; }
 }
 
 /// <summary>
 /// Server Side Includes, Apache mod_include style, without #exec.
-/// Supported: include (virtual/file), echo, set, config (timefmt/sizefmt/errmsg/echomsg), flastmod, fsize.
+/// Supported: include (virtual/file), echo, set, config (timefmt/sizefmt/errmsg/echomsg), flastmod, fsize; and
+/// counter, a visitor counter, where the host provides <see cref="SsiContext.VisitorCount"/>.
 /// </summary>
 public sealed partial class SsiProcessor
 {
@@ -49,6 +57,9 @@ public sealed partial class SsiProcessor
     /// memory, and a page this big is media packed into HTML (base64 videos), not a page that uses includes.
     /// </summary>
     public const int MaxPageBytes = 2 * 1024 * 1024;
+
+    /// <summary>The largest <c>start</c> a counter accepts: room for an old counter's number, not for nonsense.</summary>
+    public const long MaxCounterStart = 1_000_000_000;
 
     // Quoted values may contain the quote character escaped with a backslash, as in Apache: value="say \"hi\"".
     [GeneratedRegex("""<!--#([a-zA-Z]+)((?:\s+[a-zA-Z_]+\s*=\s*(?:"(?:[^"\\]|\\.)*"|'(?:[^'\\]|\\.)*'))*)\s*-->""")]
@@ -176,6 +187,31 @@ public sealed partial class SsiProcessor
                     : Strftime.Format(ToZone(info.LastWriteTimeUtc, ctx), ctx.TimeFmt);
             }
 
+            case "counter":
+            {
+                if (ctx.VisitorCount is null) return null;
+                long start = 0;
+                var separator = ",";
+                foreach (var (attr, value) in attrs)
+                {
+                    switch (attr)
+                    {
+                        case "start" when long.TryParse(value, NumberStyles.None, CultureInfo.InvariantCulture, out var s)
+                                          && s <= MaxCounterStart:
+                            start = s;
+                            break;
+                        case "separator" when value.Length <= 1:
+                            separator = value;
+                            break;
+                        // Unknown attributes are errors, so new ones can be added without changing existing pages.
+                        default:
+                            return null;
+                    }
+                }
+                ctx.Visitors ??= await ctx.VisitorCount();
+                return FormatCount(ctx.Visitors.Value + start, separator);
+            }
+
             default:
                 // #exec, #printenv, #if... are deliberately unsupported.
                 return null;
@@ -249,6 +285,10 @@ public sealed partial class SsiProcessor
 
     private static DateTimeOffset ToZone(DateTime utc, SsiContext ctx) =>
         TimeZoneInfo.ConvertTime(new DateTimeOffset(utc, TimeSpan.Zero), ctx.TimeZone);
+
+    /// <summary>12345 as "12,345", with any one-character separator (or none) between groups of three.</summary>
+    private static string FormatCount(long n, string separator) =>
+        WebUtility.HtmlEncode(n.ToString("N0", CultureInfo.InvariantCulture).Replace(",", separator));
 
     private static string FormatSize(long bytes, string sizefmt)
     {

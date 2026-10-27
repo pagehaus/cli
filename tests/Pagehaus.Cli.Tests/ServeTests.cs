@@ -28,6 +28,7 @@ public sealed class ServeTests : IAsyncLifetime
         Write(".env", "SECRET=1");
         Write("404.html", "<!--#set var=\"title\" value=\"Lost\" --><!--#include virtual=\"/includes/header.html\" -->");
         Write("empty/readme.txt", "no index here");
+        Write("counter.html", "<p><!--#counter start=\"1000\" --></p>");
 
         var listener = new TcpListener(IPAddress.Loopback, 0);
         listener.Start();
@@ -45,6 +46,13 @@ public sealed class ServeTests : IAsyncLifetime
         if (_app is not null) await _app.DisposeAsync();
         _live?.Dispose();
         Directory.Delete(_root, recursive: true);
+    }
+
+    [Fact]
+    public async Task Visitor_counters_show_a_sample_number()
+    {
+        var html = await _client.GetStringAsync("/counter.html");
+        Assert.StartsWith("<p>2,234</p>", html);
     }
 
     [Fact]
