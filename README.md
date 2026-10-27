@@ -73,6 +73,10 @@ mod_include does: `include`, `echo`, `set`, `config`, `flastmod` and `fsize` (no
 untrusted pages safe. It's the same engine Pagehaus hosting uses, so what you see is what you get there. The engine
 is also a .NET library: `src/Pagehaus.Ssi`.
 
+Pagehaus adds one directive of its own: `<!--#counter -->`, a visitor counter, as plain text or as digits in boxes
+(`theme="classic"`, `"odometer"`, `"led"`) in your site's colours. `serve` shows a sample number; the real one is
+counted online.
+
 ## Building
 
 Needs the .NET 10 SDK. `dotnet test`, then `dotnet run --project src/Pagehaus.Cli -- serve path/to/site`.

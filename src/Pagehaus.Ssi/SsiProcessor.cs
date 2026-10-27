@@ -58,9 +58,6 @@ public sealed partial class SsiProcessor
     /// </summary>
     public const int MaxPageBytes = 2 * 1024 * 1024;
 
-    /// <summary>The largest <c>start</c> a counter accepts: room for an old counter's number, not for nonsense.</summary>
-    public const long MaxCounterStart = 1_000_000_000;
-
     // Quoted values may contain the quote character escaped with a backslash, as in Apache: value="say \"hi\"".
     [GeneratedRegex("""<!--#([a-zA-Z]+)((?:\s+[a-zA-Z_]+\s*=\s*(?:"(?:[^"\\]|\\.)*"|'(?:[^'\\]|\\.)*'))*)\s*-->""")]
     private static partial Regex DirectiveRegex();
@@ -189,27 +186,9 @@ public sealed partial class SsiProcessor
 
             case "counter":
             {
-                if (ctx.VisitorCount is null) return null;
-                long start = 0;
-                var separator = ",";
-                foreach (var (attr, value) in attrs)
-                {
-                    switch (attr)
-                    {
-                        case "start" when long.TryParse(value, NumberStyles.None, CultureInfo.InvariantCulture, out var s)
-                                          && s <= MaxCounterStart:
-                            start = s;
-                            break;
-                        case "separator" when value.Length <= 1:
-                            separator = value;
-                            break;
-                        // Unknown attributes are errors, so new ones can be added without changing existing pages.
-                        default:
-                            return null;
-                    }
-                }
+                if (ctx.VisitorCount is null || CounterStyle.Parse(attrs, currentFile) is not { } style) return null;
                 ctx.Visitors ??= await ctx.VisitorCount();
-                return FormatCount(ctx.Visitors.Value + start, separator);
+                return style.Render(ctx.Visitors.Value);
             }
 
             default:
@@ -285,10 +264,6 @@ public sealed partial class SsiProcessor
 
     private static DateTimeOffset ToZone(DateTime utc, SsiContext ctx) =>
         TimeZoneInfo.ConvertTime(new DateTimeOffset(utc, TimeSpan.Zero), ctx.TimeZone);
-
-    /// <summary>12345 as "12,345", with any one-character separator (or none) between groups of three.</summary>
-    private static string FormatCount(long n, string separator) =>
-        WebUtility.HtmlEncode(n.ToString("N0", CultureInfo.InvariantCulture).Replace(",", separator));
 
     private static string FormatSize(long bytes, string sizefmt)
     {

@@ -167,7 +167,7 @@ public sealed class SsiProcessorTests : IDisposable
     [InlineData("<!--#counter start=\"1000000001\" -->")]
     [InlineData("<!--#counter start=\"1e6\" -->")]
     [InlineData("<!--#counter separator=\"::\" -->")]
-    [InlineData("<!--#counter theme=\"odometer\" -->")]
+    [InlineData("<!--#counter theme=\"disco\" -->")]
     [InlineData("<!--#counter color=\"red;background:url(x)\" -->")]
     public async Task Counter_with_a_bad_attribute_shows_the_error_message(string directive) =>
         Assert.Equal("[an error occurred while processing this directive]", (await Count(directive, 5)).Html);
