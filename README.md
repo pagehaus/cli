@@ -6,7 +6,7 @@ Preview, check and deploy plain HTML websites from the command line.
 pagehaus serve [folder]     preview the site at http://localhost:8080, with Server Side Includes,
                             reloading the page when you save a file
 pagehaus check [folder]     find broken links, missing files, links whose case doesn't match the file,
-                            files too big, pages without a title or description
+                            files too big, pages without a title or description, mistakes in _redirects
 pagehaus login              save an API token for deploy
 pagehaus deploy [folder]    upload the folder to your Pagehaus site
 ```
@@ -76,6 +76,14 @@ is also a .NET library: `src/Pagehaus.Ssi`.
 Pagehaus adds one directive of its own: `<!--#counter -->`, a visitor counter, as plain text or as digits in boxes
 (`theme="classic"`, `"odometer"`, `"led"`) in your site's colours. `serve` shows a sample number; the real one is
 counted online.
+
+## Redirects
+
+A `_redirects` file at the top of the site sends old addresses to new ones, in the format Netlify and Cloudflare Pages
+use: one rule per line, `/old-page /new-page.html` (301 unless it ends in `302`), with `/blog/* /posts/:splat` and
+`/news/:year/:slug` for patterns. A rule only applies where nothing else is found, so it never hides a file. `serve`
+follows the rules as Pagehaus does, and `check` reports lines it can't read, redirects that go round in a circle, and
+doesn't count links a rule covers as broken. See [Redirects](https://pagehaus.app/help/redirects).
 
 ## Building
 

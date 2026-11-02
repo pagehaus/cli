@@ -133,4 +133,32 @@ public sealed class CheckTests : IDisposable
         Assert.Equal("bad.html", finding.Files.Single());
         Assert.Contains("Server Side Include failed", finding.Message);
     }
+
+    [Fact]
+    public async Task Links_a_redirect_covers_are_fine_and_problems_in_the_file_are_reported()
+    {
+        Write("index.html", Page("""<a href="/about-us">About</a> <a href="/old/2019/post">Post</a> <a href="/gone.html">Gone</a>"""));
+        Write("about.html", Page("About"));
+        Write("_redirects", "/about-us /about.html\n/old/* /blog/:splat\n/a /b 307\n/x /y\n/y /x\n/shop https://shop.example/");
+
+        var findings = await CheckAsync();
+        Assert.Equal(["index.html"], Single(findings, "links to /gone.html, which doesn't exist").Files);
+        Assert.DoesNotContain(findings, f => f.Message.Contains("/about-us") || f.Message.Contains("/old/2019"));
+
+        var status = Single(findings, "line 3: The status must be 301");
+        Assert.Equal(Severity.Problem, status.Severity);
+        Assert.Equal([RedirectRules.FileName], status.Files);
+        Assert.Contains("The line is skipped.", status.Message);
+        Assert.Equal(Severity.Problem, Single(findings, "line 4: The redirects go round in a circle").Severity);
+        Assert.Equal(Severity.Warning, Single(findings, "line 6 sends visitors to another website").Severity);
+    }
+
+    [Fact]
+    public async Task A_link_with_the_wrong_case_is_still_reported_when_a_rule_could_catch_it()
+    {
+        Write("index.html", Page("""<a href="/About.html">About</a>"""));
+        Write("about.html", Page("About"));
+        Write("_redirects", "/* /");
+        Assert.Contains("the case must match", Assert.Single(await CheckAsync()).Message);
+    }
 }

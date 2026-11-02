@@ -14,11 +14,12 @@ public static class Cli
         Usage:
           pagehaus serve [folder] [--port 8080] [--open] [--no-reload]
               Preview the site at http://localhost:8080 as Pagehaus serves it: Server Side Includes,
-              index pages, your 404.html. Pages reload in the browser when you save a file.
+              index pages, your _redirects and 404.html. Pages reload in the browser when you save a file.
 
           pagehaus check [folder] [--strict]
               Find broken links and missing files, links whose case doesn't match the file
-              (Team.JPG linked as team.jpg), files too big, pages without a title or description.
+              (Team.JPG linked as team.jpg), files too big, pages without a title or description,
+              mistakes in _redirects.
               Exit status 1 if there are problems (with --strict, warnings too): ready for CI.
 
           pagehaus login

@@ -29,6 +29,8 @@ public sealed class ServeTests : IAsyncLifetime
         Write("404.html", "<!--#set var=\"title\" value=\"Lost\" --><!--#include virtual=\"/includes/header.html\" -->");
         Write("empty/readme.txt", "no index here");
         Write("counter.html", "<p><!--#counter start=\"1000\" --></p>");
+        Write("moved/readme.txt", "no index here either");
+        Write("_redirects", "/about-us /about.html\n/old/* /blog/:splat 302\n/style.css /elsewhere.css\n/moved/ /blog/\n/shop https://shop.example/\n/bad");
 
         var listener = new TcpListener(IPAddress.Loopback, 0);
         listener.Start();
@@ -121,5 +123,37 @@ public sealed class ServeTests : IAsyncLifetime
         Write("style.css", "body{color:red}");
         var line = await reader.ReadLineAsync().WaitAsync(TimeSpan.FromSeconds(5));
         Assert.Equal("data: reload", line);
+    }
+
+    [Fact]
+    public async Task Rules_in_redirects_send_missing_addresses_on_with_the_query_string()
+    {
+        var moved = await _client.GetAsync("/About-Us/?ref=mail");
+        Assert.Equal(HttpStatusCode.MovedPermanently, moved.StatusCode);
+        Assert.Equal("/about.html?ref=mail", moved.Headers.Location?.OriginalString);
+
+        var later = await _client.GetAsync("/old/2019/post.html");
+        Assert.Equal(HttpStatusCode.Found, later.StatusCode);
+        Assert.Equal("/blog/2019/post.html", later.Headers.Location?.OriginalString);
+
+        Assert.Equal("https://shop.example/", (await _client.GetAsync("/shop")).Headers.Location?.OriginalString);
+    }
+
+    [Fact]
+    public async Task A_rule_never_hides_a_file_but_covers_a_folder_without_an_index()
+    {
+        Assert.Equal(HttpStatusCode.OK, (await _client.GetAsync("/style.css")).StatusCode);
+        var folder = await _client.GetAsync("/moved/");
+        Assert.Equal(HttpStatusCode.MovedPermanently, folder.StatusCode);
+        Assert.Equal("/blog/", folder.Headers.Location?.OriginalString);
+    }
+
+    [Fact]
+    public async Task The_redirects_file_itself_is_never_sent_and_hidden_files_stay_hidden()
+    {
+        var file = await _client.GetAsync("/_redirects");
+        Assert.Equal(HttpStatusCode.NotFound, file.StatusCode);
+        Assert.DoesNotContain("/about-us", await file.Content.ReadAsStringAsync());
+        Assert.Equal(HttpStatusCode.NotFound, (await _client.GetAsync("/nothing-here")).StatusCode);
     }
 }

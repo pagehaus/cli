@@ -7,7 +7,7 @@ namespace Pagehaus.Cli.Serve;
 
 /// <summary>
 /// Serves a folder the way Pagehaus serves a site: index pages (index.html, index.shtml, index.htm), Server Side
-/// Includes in .html/.htm/.shtml, the site's 404.html, hidden files refused, the same content types. Forms can't be
+/// Includes in .html/.htm/.shtml, the site's _redirects and 404.html, hidden files refused, the same content types. Forms can't be
 /// sent from here, so they show what Pagehaus would email. Keep in step with the host's StaticSite.
 /// </summary>
 public sealed class SiteServer(string root, SsiProcessor ssi, LiveReload? reload = null)
@@ -50,7 +50,8 @@ public sealed class SiteServer(string root, SsiProcessor ssi, LiveReload? reload
 
         var requestPath = ctx.Request.Path.Value ?? "/";
         var rel = requestPath.Contains('\\') ? null : SitePath.Normalize(requestPath);
-        if (rel is null || IsHidden(rel))
+        // _redirects is read by the server, never sent.
+        if (rel is null || IsHidden(rel) || rel == RedirectRules.FileName)
         {
             await NotFoundAsync(ctx);
             return;
@@ -67,7 +68,7 @@ public sealed class SiteServer(string root, SsiProcessor ssi, LiveReload? reload
             }
             if (SitePath.FindIndex(Root, rel) is not { } index)
             {
-                await NotFoundAsync(ctx);
+                await MissingAsync(ctx);
                 return;
             }
             rel = index;
@@ -75,7 +76,7 @@ public sealed class SiteServer(string root, SsiProcessor ssi, LiveReload? reload
         }
         else if (!File.Exists(disk))
         {
-            await NotFoundAsync(ctx);
+            await MissingAsync(ctx);
             return;
         }
 
@@ -118,6 +119,23 @@ public sealed class SiteServer(string root, SsiProcessor ssi, LiveReload? reload
         if (Interlocked.Exchange(ref _counterNoted, 1) == 0)
             Console.WriteLine($"Visitor counters show a sample number ({SampleVisitors:N0}); the real one appears online.");
         return ValueTask.FromResult(SampleVisitors);
+    }
+
+    /// <summary>
+    /// Nothing at the address: a rule in _redirects sends the visitor on, as on Pagehaus, otherwise the 404 page. Rules
+    /// for other websites work here whatever the plan; online, they need Personal or Pro.
+    /// </summary>
+    private async Task MissingAsync(HttpContext ctx)
+    {
+        var file = SitePath.ToDisk(Root, RedirectRules.FileName);
+        if (File.Exists(file)
+            && RedirectRules.Parse(await File.ReadAllTextAsync(file)).Match(ctx.Request.Path.Value ?? "/", ctx.Request.QueryString.Value) is { } to)
+        {
+            ctx.Response.StatusCode = to.Status;
+            ctx.Response.Headers.Location = to.Location;
+            return;
+        }
+        await NotFoundAsync(ctx);
     }
 
     private async Task NotFoundAsync(HttpContext ctx)

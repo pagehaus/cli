@@ -52,6 +52,8 @@ public sealed partial class SiteChecker(SsiProcessor ssi)
     public int Pages { get; private set; }
     public int Files { get; private set; }
 
+    private RedirectRules _redirects = RedirectRules.Empty;
+
     public async Task<IReadOnlyList<Finding>> CheckAsync(string folder)
     {
         var root = Path.GetFullPath(folder);
@@ -64,6 +66,19 @@ public sealed partial class SiteChecker(SsiProcessor ssi)
             if (!files.Contains(file)) files.Add(file);
         }
 
+        _redirects = RedirectRules.Empty;
+        if (site.Files.Contains(RedirectRules.FileName))
+        {
+            _redirects = RedirectRules.Parse(await File.ReadAllTextAsync(SitePath.ToDisk(root, RedirectRules.FileName)));
+            foreach (var problem in _redirects.Problems)
+                Add(Severity.Problem, $"line {problem.Line}: {problem.Message} The line is skipped.", RedirectRules.FileName);
+            foreach (var loop in _redirects.FindLoops(path => SitePath.Normalize(path) is { } rel && site.Exists(rel)))
+                Add(Severity.Problem, $"line {loop.Line}: {loop.Message}", RedirectRules.FileName);
+            foreach (var rule in _redirects.Rules.Where(r => r.External))
+                Add(Severity.Warning, $"line {rule.Line} sends visitors to another website ({rule.To}): on Pagehaus that needs a Personal or Pro plan.",
+                    RedirectRules.FileName);
+        }
+
         foreach (var rel in site.Files)
         {
             var size = new FileInfo(SitePath.ToDisk(root, rel)).Length;
@@ -74,7 +89,7 @@ public sealed partial class SiteChecker(SsiProcessor ssi)
             {
                 var css = CssComment().Replace(await File.ReadAllTextAsync(SitePath.ToDisk(root, rel)), "");
                 foreach (Match m in CssUrl().Matches(css))
-                    CheckLink(site, rel, SitePath.Parent(rel), m.Groups["v"].Value, Add);
+                    CheckLink(site, _redirects, rel, SitePath.Parent(rel), m.Groups["v"].Value, Add);
                 continue;
             }
             if (!SsiProcessor.IsSsiFile(rel)) continue;
@@ -122,9 +137,9 @@ public sealed partial class SiteChecker(SsiProcessor ssi)
                 var value = WebUtility.HtmlDecode(m.Groups["v"].Value);
                 if (m.Groups["attr"].Value.Equals("srcset", StringComparison.OrdinalIgnoreCase))
                     foreach (var candidate in value.Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries))
-                        CheckLink(site, rel, dir, candidate.Split(' ')[0], Add);
+                        CheckLink(site, _redirects, rel, dir, candidate.Split(' ')[0], Add);
                 else
-                    CheckLink(site, rel, dir, value, Add);
+                    CheckLink(site, _redirects, rel, dir, value, Add);
             }
         }
 
@@ -134,7 +149,7 @@ public sealed partial class SiteChecker(SsiProcessor ssi)
             .ToList();
     }
 
-    private static void CheckLink(SiteFiles site, string from, string dir, string link, Action<Severity, string, string> add)
+    private static void CheckLink(SiteFiles site, RedirectRules redirects, string from, string dir, string link, Action<Severity, string, string> add)
     {
         link = link.Trim();
         if (link.Length == 0 || link.StartsWith('#') || link.Contains('{') || link.StartsWith("/_form/")) return;
@@ -165,7 +180,7 @@ public sealed partial class SiteChecker(SsiProcessor ssi)
         if (site.Exists(target)) return;
         if (site.ExistsIgnoringCase(target) is { } actual)
             add(Severity.Problem, $"links to {link}, but the file is named {actual}. That works on Windows and Mac, not on a web server: the case must match.", from);
-        else
+        else if (redirects.Match("/" + target) is null) // a rule in _redirects sends visitors on: not broken
             add(Severity.Problem, $"links to {link}, which doesn't exist.", from);
     }
 }
