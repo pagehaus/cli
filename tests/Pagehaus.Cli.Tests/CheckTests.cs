@@ -161,4 +161,22 @@ public sealed class CheckTests : IDisposable
         Write("_redirects", "/* /");
         Assert.Contains("the case must match", Assert.Single(await CheckAsync()).Message);
     }
+
+    [Fact]
+    public async Task Conditions_are_checked_in_every_branch()
+    {
+        // The menu shows the missing file only on a page that isn't there, so processing the pages never reaches it.
+        Write("includes/nav.html", """
+            <nav>
+            <!--#if expr="$DOCUMENT_URI = /shop.html" --><!--#include virtual="/includes/cart.html" --><!--#endif -->
+            <!--#if expr="v('DOCUMENT_URI') == '/'" -->Home<!--#endif -->
+            </nav>
+            """);
+        Write("index.html", Page("""<!--#include virtual="/includes/nav.html" -->"""));
+
+        var findings = await CheckAsync();
+        Assert.Equal(["includes/nav.html"], Single(findings, "/includes/cart.html").Files);
+        Assert.StartsWith("line 2: ", Single(findings, "/includes/cart.html").Message);
+        Assert.StartsWith("line 3: ", Single(findings, "newer syntax").Message);
+    }
 }

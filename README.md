@@ -6,7 +6,8 @@ Preview, check and deploy plain HTML websites from the command line.
 pagehaus serve [folder]     preview the site at http://localhost:8080, with Server Side Includes,
                             reloading the page when you save a file
 pagehaus check [folder]     find broken links, missing files, links whose case doesn't match the file,
-                            files too big, pages without a title or description, mistakes in _redirects
+                            files too big, pages without a title or description, mistakes in includes
+                            and _redirects
 pagehaus login              save an API token for deploy
 pagehaus deploy [folder]    upload the folder to your Pagehaus site
 ```
@@ -69,9 +70,19 @@ several sites, say which: `--site bakery`. In CI, set `PAGEHAUS_TOKEN` instead o
 ## Server Side Includes
 
 `serve` processes [Server Side Includes](https://pagehaus.app/help/server-side-includes) the way Apache's
-mod_include does: `include`, `echo`, `set`, `config`, `flastmod` and `fsize` (no `exec`), with limits that keep
-untrusted pages safe. It's the same engine Pagehaus hosting uses, so what you see is what you get there. The engine
-is also a .NET library: `src/Pagehaus.Ssi`.
+mod_include does: `include`, `echo`, `set`, `config`, `flastmod`, `fsize` and `if`/`elif`/`else`/`endif` (no
+`exec`), with limits that keep untrusted pages safe. It's the same engine Pagehaus hosting uses, so what you see is
+what you get there. The engine is also a .NET library: `src/Pagehaus.Ssi`.
+
+Conditions use Apache's long-standing expression syntax (`$NAME = value`, `!=`, `/regex/`, `&&`, `||`, `!`), which is
+enough for the classic use, a shared menu that marks the page you're on:
+
+```html
+<a href="/about.html"<!--#if expr="$DOCUMENT_URI = /about.html" --> aria-current="page"<!--#endif -->>About</a>
+```
+
+`check` reports conditions that don't close, expressions it can't read, and missing files in any branch, including
+ones the pages checked never show.
 
 Pagehaus adds one directive of its own: `<!--#counter -->`, a visitor counter, as plain text or as digits in boxes
 (`theme="classic"`, `"odometer"`, `"led"`) in your site's colours. `serve` shows a sample number; the real one is

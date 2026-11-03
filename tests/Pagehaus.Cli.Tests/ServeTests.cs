@@ -30,6 +30,8 @@ public sealed class ServeTests : IAsyncLifetime
         Write("empty/readme.txt", "no index here");
         Write("counter.html", "<p><!--#counter start=\"1000\" --></p>");
         Write("moved/readme.txt", "no index here either");
+        Write("includes/nav.html", """<a href="/blog/"<!--#if expr="$REQUEST_URI = /^\/blog\//" --> aria-current="page"<!--#endif -->>Blog</a>""");
+        Write("blog/post.html", """<!--#include virtual="/includes/nav.html" -->""");
         Write("_redirects", "/about-us /about.html\n/old/* /blog/:splat 302\n/style.css /elsewhere.css\n/moved/ /blog/\n/shop https://shop.example/\n/bad");
 
         var listener = new TcpListener(IPAddress.Loopback, 0);
@@ -155,5 +157,11 @@ public sealed class ServeTests : IAsyncLifetime
         Assert.Equal(HttpStatusCode.NotFound, file.StatusCode);
         Assert.DoesNotContain("/about-us", await file.Content.ReadAsStringAsync());
         Assert.Equal(HttpStatusCode.NotFound, (await _client.GetAsync("/nothing-here")).StatusCode);
+    }
+
+    [Fact]
+    public async Task Conditions_see_the_address_asked_for()
+    {
+        Assert.StartsWith("""<a href="/blog/" aria-current="page">Blog</a>""", await _client.GetStringAsync("/blog/post.html"));
     }
 }

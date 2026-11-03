@@ -107,6 +107,7 @@ public sealed class SiteServer(string root, SsiProcessor ssi, LiveReload? reload
             DocumentPath = rel,
             Host = ctx.Request.Host.Host,
             QueryString = ctx.Request.QueryString.Value ?? "",
+            RequestPath = ctx.Request.Path.Value,
             FollowLinks = true, // your own computer: deploy uploads what a link points to
             VisitorCount = SampleCount,
         });

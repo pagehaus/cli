@@ -5,6 +5,9 @@ using System.Text.RegularExpressions;
 
 namespace Pagehaus.Ssi;
 
+/// <summary>A mistake <see cref="SsiProcessor.Lint"/> found, with the line it's on.</summary>
+public sealed record SsiLintProblem(int Line, string Message);
+
 /// <summary>Per-request state for SSI processing. Plain values so it can be used without an HttpContext.</summary>
 public sealed class SsiContext
 {
@@ -15,6 +18,12 @@ public sealed class SsiContext
 
     public string Host { get; init; } = "";
     public string QueryString { get; init; } = "";
+
+    /// <summary>
+    /// The address the visitor asked for, without the query string (<c>REQUEST_URI</c>): "/blog/" where
+    /// <see cref="DocumentPath"/> is "blog/index.html", or the missing address on the 404 page. Null means the page's own.
+    /// </summary>
+    public string? RequestPath { get; init; }
 
     /// <summary>
     /// Whether includes may go through symbolic links. Off by default: on a host, a link could point anywhere, another
@@ -37,13 +46,17 @@ public sealed class SsiContext
     internal string EchoMsg { get; set; } = "(none)";
     internal int OutputBytes { get; set; }
     internal long? Visitors { get; set; }
+
+    /// <summary>The groups of the last regular expression matched in a condition: $0 to $9.</summary>
+    internal string[]? Captures { get; set; }
     public int Directives { get; internal set; }
 }
 
 /// <summary>
 /// Server Side Includes, Apache mod_include style, without #exec.
-/// Supported: include (virtual/file), echo, set, config (timefmt/sizefmt/errmsg/echomsg), flastmod, fsize; and
-/// counter, a visitor counter, where the host provides <see cref="SsiContext.VisitorCount"/>.
+/// Supported: include (virtual/file), echo, set, config (timefmt/sizefmt/errmsg/echomsg), flastmod, fsize,
+/// if/elif/else/endif (<see cref="SsiExpression"/>); and counter, a visitor counter, where the host provides
+/// <see cref="SsiContext.VisitorCount"/>.
 /// </summary>
 public sealed partial class SsiProcessor
 {
@@ -51,6 +64,7 @@ public sealed partial class SsiProcessor
     public const int MaxDirectives = 5000;
     public const int MaxIncludeBytes = 2 * 1024 * 1024;
     public const int MaxOutputBytes = 5 * 1024 * 1024;
+    public const int MaxConditionDepth = 32;
 
     /// <summary>
     /// Pages larger than this are sent as they are, without processing includes: processing reads the whole page into
@@ -65,8 +79,8 @@ public sealed partial class SsiProcessor
     [GeneratedRegex("""([a-zA-Z_]+)\s*=\s*(?:"((?:[^"\\]|\\.)*)"|'((?:[^'\\]|\\.)*)')""")]
     private static partial Regex AttributeRegex();
 
-    // \$ is a literal dollar sign, as in Apache.
-    [GeneratedRegex(@"\\\$|\$\{([A-Za-z_][A-Za-z0-9_]*)\}|\$([A-Za-z_][A-Za-z0-9_]*)")]
+    // \$ is a literal dollar sign, as in Apache. $0 to $9 are the groups of the last pattern matched in a condition.
+    [GeneratedRegex(@"\\\$|\$\{([A-Za-z_][A-Za-z0-9_]*|[0-9])\}|\$([A-Za-z_][A-Za-z0-9_]*|[0-9])")]
     private static partial Regex VariableRefRegex();
 
     public static bool IsSsiFile(string path) =>
@@ -81,36 +95,176 @@ public sealed partial class SsiProcessor
 
         var sb = new StringBuilder(content.Length);
         var pos = 0;
+        // Each file has its own conditions: an #if opened in an include closes there, so a broken header can't hide the
+        // rest of the page.
+        var conditions = new Stack<Condition>();
+        var showing = true;
         foreach (Match m in DirectiveRegex().Matches(content))
         {
-            sb.Append(content, pos, m.Index - pos);
+            if (showing) sb.Append(content, pos, m.Index - pos);
             pos = m.Index + m.Length;
 
             // Total directives across the whole request are capped, so deeply nested includes can't amplify CPU.
             if (++ctx.Directives > MaxDirectives) return sb.Append(ctx.ErrMsg).ToString();
 
-            var attrs = AttributeRegex().Matches(m.Groups[2].Value)
-                .Select(a => (Name: a.Groups[1].Value.ToLowerInvariant(),
-                              Value: a.Groups[2].Success ? Unescape(a.Groups[2].Value, '"') : Unescape(a.Groups[3].Value, '\'')))
-                .ToList();
+            var attrs = Attributes(m);
+            var directive = m.Groups[1].Value.ToLowerInvariant();
 
-            string result;
-            try
+            string? result;
+            if (directive is "if" or "elif" or "else" or "endif")
             {
-                result = await RunDirectiveAsync(m.Groups[1].Value.ToLowerInvariant(), attrs, ctx, currentFile, depth)
-                         ?? ctx.ErrMsg;
+                result = Branch(directive, attrs, conditions, ctx, currentFile);
+                showing = conditions.Count == 0 || conditions.Peek().Showing;
             }
-            catch (IOException)
+            else if (!showing)
             {
-                result = ctx.ErrMsg;
+                continue; // a branch that isn't shown: nothing in it runs
             }
+            else
+            {
+                try
+                {
+                    result = await RunDirectiveAsync(directive, attrs, ctx, currentFile, depth) ?? ctx.ErrMsg;
+                }
+                catch (IOException)
+                {
+                    result = ctx.ErrMsg;
+                }
+            }
+            if (result is null) continue;
 
             ctx.OutputBytes += result.Length;
             if (ctx.OutputBytes > MaxOutputBytes) return sb.Append(ctx.ErrMsg).ToString();
             sb.Append(result);
         }
-        sb.Append(content, pos, content.Length - pos);
+        if (showing) sb.Append(content, pos, content.Length - pos);
+        // A missing #endif: what followed was shown or not as its branch said, and the mistake shows at the end.
+        if (conditions.Count > 0) sb.Append(ctx.ErrMsg);
         return sb.ToString();
+    }
+
+    private static List<(string Name, string Value)> Attributes(Match directive) =>
+        AttributeRegex().Matches(directive.Groups[2].Value)
+            .Select(a => (Name: a.Groups[1].Value.ToLowerInvariant(),
+                          Value: a.Groups[2].Success ? Unescape(a.Groups[2].Value, '"') : Unescape(a.Groups[3].Value, '\'')))
+            .ToList();
+
+    /// <summary>
+    /// What reading a file finds without serving it: conditions that don't balance, expressions that can't be read, and
+    /// files included (or measured with flastmod/fsize) inside a condition that don't exist. Those are in a branch that
+    /// the pages checked may never show, so processing them wouldn't notice; outside conditions, processing does.
+    /// </summary>
+    /// <param name="currentFile">Site-relative path of the file, for relative includes.</param>
+    public static IReadOnlyList<SsiLintProblem> Lint(string content, string siteRoot, string currentFile, bool followLinks = false)
+    {
+        var problems = new List<SsiLintProblem>();
+        if (!content.Contains("<!--#", StringComparison.Ordinal)) return problems;
+        var ctx = new SsiContext { SiteRoot = siteRoot, DocumentPath = currentFile, FollowLinks = followLinks };
+        var open = new Stack<(int Line, bool SeenElse)>();
+        foreach (Match m in DirectiveRegex().Matches(content))
+        {
+            var line = 1 + content.AsSpan(0, m.Index).Count('\n');
+            void Add(string message) => problems.Add(new SsiLintProblem(line, message));
+            var directive = m.Groups[1].Value.ToLowerInvariant();
+            var attrs = Attributes(m);
+            switch (directive)
+            {
+                case "if" or "elif":
+                    if (directive == "if")
+                    {
+                        open.Push((line, false));
+                        if (open.Count == MaxConditionDepth + 1) Add($"#if nested more than {MaxConditionDepth} deep.");
+                    }
+                    else if (open.Count == 0) { Add("#elif without an #if before it."); break; }
+                    else if (open.Peek().SeenElse) Add("#elif after #else: it's never used.");
+                    if (attrs is not [("expr", var expr)]) { Add($"#{directive} needs expr=\"...\"."); break; }
+                    try { SsiExpression.Parse(expr); }
+                    catch (FormatException ex) { Add($"#{directive} expr=\"{expr}\" can't be read: {ex.Message}."); }
+                    break;
+                case "else":
+                    if (open.Count == 0) { Add("#else without an #if before it."); break; }
+                    if (open.Peek().SeenElse) Add("a second #else for the same #if.");
+                    open.Push((open.Pop().Line, true));
+                    break;
+                case "endif":
+                    if (open.Count == 0) Add("#endif without an #if before it.");
+                    else open.Pop();
+                    break;
+                case "include" or "flastmod" or "fsize" when open.Count > 0 && attrs.Count > 0:
+                    var target = ResolveTarget(attrs[0], ctx, currentFile);
+                    if (target is null || !File.Exists(SitePath.ToDisk(siteRoot, target)))
+                        Add($"#{directive} {attrs[0].Name}=\"{attrs[0].Value}\" (inside an #if): there's no such file.");
+                    break;
+            }
+        }
+        foreach (var (line, _) in open)
+            problems.Add(new SsiLintProblem(line, "#if without an #endif to close it."));
+        return problems.OrderBy(p => p.Line).ToList();
+    }
+
+    /// <param name="ParentShowing">Whether the text around this #if is shown; if not, none of its branches are.</param>
+    /// <param name="Taken">A branch has been shown (or the #if failed), so later ones aren't.</param>
+    private sealed class Condition(bool parentShowing)
+    {
+        public bool ParentShowing { get; } = parentShowing;
+        public bool Taken { get; set; }
+        public bool Showing { get; set; }
+        public bool SeenElse { get; set; }
+    }
+
+    /// <summary>Runs #if, #elif, #else or #endif.</summary>
+    /// <returns>The error message for a mistake, otherwise null (nothing to write).</returns>
+    private static string? Branch(string directive, List<(string Name, string Value)> attrs, Stack<Condition> conditions,
+        SsiContext ctx, string currentFile)
+    {
+        var showing = conditions.Count == 0 || conditions.Peek().Showing;
+        if (directive == "if")
+        {
+            var condition = new Condition(showing);
+            conditions.Push(condition);
+            if (!showing) return null;
+            if (conditions.Count > MaxConditionDepth) { condition.Taken = true; return ctx.ErrMsg; }
+            return Test(condition, attrs, ctx, currentFile);
+        }
+
+        if (conditions.Count == 0) return ctx.ErrMsg; // #elif, #else or #endif without an #if
+        var current = conditions.Peek();
+        switch (directive)
+        {
+            case "endif":
+                conditions.Pop();
+                return null;
+            case "else":
+                if (current.SeenElse) { current.Showing = false; current.Taken = true; return current.ParentShowing ? ctx.ErrMsg : null; }
+                current.SeenElse = true;
+                current.Showing = current.ParentShowing && !current.Taken;
+                current.Taken = true;
+                return null;
+            default: // elif
+                if (current.SeenElse) { current.Showing = false; return current.ParentShowing ? ctx.ErrMsg : null; }
+                if (!current.ParentShowing || current.Taken) { current.Showing = false; return null; }
+                return Test(current, attrs, ctx, currentFile);
+        }
+    }
+
+    /// <summary>Evaluates an #if or #elif's expr and shows its branch if true. A mistake shows no branch of it.</summary>
+    private static string? Test(Condition condition, List<(string Name, string Value)> attrs, SsiContext ctx, string currentFile)
+    {
+        bool result;
+        try
+        {
+            if (attrs is not [("expr", var expr)]) throw new FormatException("needs expr=\"...\"");
+            result = SsiExpression.Parse(expr).Evaluate(name => GetVariable(name, ctx, currentFile), groups => ctx.Captures = groups);
+        }
+        catch (FormatException)
+        {
+            condition.Showing = false;
+            condition.Taken = true;
+            return ctx.ErrMsg;
+        }
+        condition.Showing = result;
+        condition.Taken = result;
+        return null;
     }
 
     /// <returns>The replacement text, or null to emit the error message.</returns>
@@ -192,7 +346,7 @@ public sealed partial class SsiProcessor
             }
 
             default:
-                // #exec, #printenv, #if... are deliberately unsupported.
+                // #exec and #printenv are deliberately unsupported.
                 return null;
         }
     }
@@ -226,6 +380,7 @@ public sealed partial class SsiProcessor
     private static string? GetVariable(string name, SsiContext ctx, string currentFile)
     {
         if (ctx.Vars.TryGetValue(name, out var v)) return v;
+        if (name.Length == 1 && char.IsAsciiDigit(name[0])) return ctx.Captures?[name[0] - '0'];
         return name switch
         {
             "DATE_LOCAL" => Strftime.Format(TimeZoneInfo.ConvertTime(ctx.Now, ctx.TimeZone), ctx.TimeFmt),
@@ -238,6 +393,7 @@ public sealed partial class SsiProcessor
                     ? ToZone(Info(SitePath.ToDisk(ctx.SiteRoot, ctx.DocumentPath), ctx).LastWriteTimeUtc, ctx)
                     : TimeZoneInfo.ConvertTime(ctx.Now, ctx.TimeZone), ctx.TimeFmt),
             "QUERY_STRING" => ctx.QueryString.TrimStart('?'),
+            "REQUEST_URI" => ctx.RequestPath ?? "/" + ctx.DocumentPath,
             "HTTP_HOST" or "SERVER_NAME" => ctx.Host,
             _ => null,
         };
@@ -255,8 +411,12 @@ public sealed partial class SsiProcessor
     }
 
     private static string Substitute(string value, SsiContext ctx, string currentFile) =>
-        VariableRefRegex().Replace(value, m => m.Value == "\\$" ? "$" :
-            GetVariable(m.Groups[1].Success ? m.Groups[1].Value : m.Groups[2].Value, ctx, currentFile) ?? "");
+        SubstituteVariables(value, name => GetVariable(name, ctx, currentFile));
+
+    /// <summary>Replaces $NAME and ${NAME} with their values (unset ones with nothing), and \$ with a dollar sign.</summary>
+    internal static string SubstituteVariables(string value, Func<string, string?> variable) =>
+        !value.Contains('$') ? value : VariableRefRegex().Replace(value, m => m.Value == "\\$" ? "$" :
+            variable(m.Groups[1].Success ? m.Groups[1].Value : m.Groups[2].Value) ?? "");
 
     /// <summary>\" (or \') is the quote character and \\ a backslash. Other backslashes stay, so \$ reaches <see cref="Substitute"/>.</summary>
     private static string Unescape(string value, char quote) =>
