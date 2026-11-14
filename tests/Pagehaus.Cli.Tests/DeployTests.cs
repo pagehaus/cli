@@ -20,6 +20,7 @@ public sealed class DeployTests : IAsyncLifetime
     private string[] _sites = ["bakery"];
     private string? _tokenSite;
     private int _status = 200;
+    private int _zipsRefused;
 
     private void Write(string rel, string content)
     {
@@ -43,6 +44,7 @@ public sealed class DeployTests : IAsyncLifetime
         {
             if (ctx.Request.Headers.Authorization != $"Bearer {Token}")
             {
+                if (ctx.Request.Path.Value!.EndsWith("/zip")) _zipsRefused++;
                 ctx.Response.StatusCode = 401;
                 await ctx.Response.WriteAsJsonAsync(new { error = "This token is revoked." });
                 return;
@@ -152,5 +154,21 @@ public sealed class DeployTests : IAsyncLifetime
         Environment.SetEnvironmentVariable("PAGEHAUS_TOKEN", "ph_revokedrevokedrevokedrevokedrevokedrevoked1");
         e = await Assert.ThrowsAsync<CliException>(() => DeployCommand.RunAsync(_root, "bakery", false, false, new StringWriter()));
         Assert.Contains("Your token wasn't accepted (This token is revoked.). Run pagehaus login", e.Message);
+    }
+
+    [Fact]
+    public async Task A_revoked_token_is_reported_before_anything_is_uploaded()
+    {
+        // Like Pagehaus, the stand-in refuses the token without reading the upload; with a site bigger than the
+        // connection's buffers, sending it first ended in "Couldn't reach" instead of the real reason.
+        Write("index.html", Page());
+        File.WriteAllBytes(Path.Combine(_root, "photo.jpg"), System.Security.Cryptography.RandomNumberGenerator.GetBytes(3 * 1024 * 1024));
+        Environment.SetEnvironmentVariable("PAGEHAUS_TOKEN", "ph_revokedrevokedrevokedrevokedrevokedrevoked1");
+        var output = new StringWriter();
+
+        var e = await Assert.ThrowsAsync<CliException>(() => DeployCommand.RunAsync(_root, "bakery", false, false, output));
+        Assert.Contains("Your token wasn't accepted (This token is revoked.). Run pagehaus login", e.Message);
+        Assert.Equal(0, _zipsRefused);                       // the upload was never started
+        Assert.DoesNotContain("Deploying to", output.ToString());
     }
 }

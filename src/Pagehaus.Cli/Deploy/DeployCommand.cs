@@ -18,7 +18,10 @@ public static class DeployCommand
         var token = Config.CurrentToken()
                     ?? throw new CliException($"Not logged in: run pagehaus login (or set {Config.TokenVariable}).");
         using var api = PagehausApi.Create(token);
-        site ??= await ChooseSiteAsync(api);
+        // Check the token first. Pagehaus refuses a revoked or expired token without reading the upload, so sending the
+        // zip would end in a broken connection ("Couldn't reach pagehaus.app") instead of saying what's wrong.
+        var me = await api.MeAsync();
+        site ??= await ChooseSiteAsync(api, me);
 
         var checker = new SiteChecker(new SsiProcessor());
         var problems = (await checker.CheckAsync(folder)).Where(f => f.Severity == Severity.Problem).ToList();
@@ -58,9 +61,8 @@ public static class DeployCommand
     }
 
     /// <summary>The site a token can deploy to when it's the only one; otherwise --site is needed.</summary>
-    private static async Task<string> ChooseSiteAsync(PagehausApi api)
+    private static async Task<string> ChooseSiteAsync(PagehausApi api, TokenInfo me)
     {
-        var me = await api.MeAsync();
         if (me.Site is { } only) return only;
         var sites = (await api.SitesAsync()).Where(s => !s.Suspended).ToList();
         return sites.Count switch
