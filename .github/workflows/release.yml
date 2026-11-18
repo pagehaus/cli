@@ -28,11 +28,12 @@ jobs:
     strategy:
       matrix:
         include:
-          - { rid: linux-x64, os: ubuntu-latest }
-          - { rid: linux-arm64, os: ubuntu-24.04-arm }
-          - { rid: osx-arm64, os: macos-latest }
-          - { rid: osx-x64, os: macos-latest }   # cross-compiled on Apple silicon
-          - { rid: win-x64, os: windows-latest }
+          - { name: linux-x64, rids: linux-x64, os: ubuntu-latest }
+          - { name: linux-arm64, rids: linux-arm64, os: ubuntu-24.04-arm }
+          # Both Mac builds on one runner (Intel cross-compiled on Apple silicon): GitHub's macOS runners are often
+          # short, and a release that needs two at once can wait for the second until it's cancelled.
+          - { name: osx, rids: osx-arm64 osx-x64, os: macos-latest }
+          - { name: win-x64, rids: win-x64, os: windows-latest }
     runs-on: ${{ matrix.os }}
     defaults:
       run:
@@ -45,20 +46,25 @@ jobs:
       - name: Publish
         run: |
           version="${GITHUB_REF_NAME#v}"
-          dotnet publish src/Pagehaus.Cli -c Release -r ${{ matrix.rid }} -p:PublishAot=true -p:Version="$version" -o out
-          mkdir pkg && cp LICENSE README.md pkg/
-          if [ "${{ runner.os }}" = Windows ]; then
-            cp out/pagehaus.exe pkg/ && (cd pkg && 7z a "../pagehaus-${{ matrix.rid }}.zip" . >/dev/null)
-          else
-            # Named, not ".": entries without "./", so "tar -xz pagehaus" finds the file with GNU tar too.
-            cp out/pagehaus pkg/ && tar -czf "pagehaus-${{ matrix.rid }}.tar.gz" -C pkg pagehaus LICENSE README.md
-          fi
+          for rid in ${{ matrix.rids }}; do
+            dotnet publish src/Pagehaus.Cli -c Release -r "$rid" -p:PublishAot=true -p:Version="$version" -o "out/$rid"
+            mkdir -p "pkg/$rid" && cp LICENSE README.md "pkg/$rid/"
+            if [ "${{ runner.os }}" = Windows ]; then
+              cp "out/$rid/pagehaus.exe" "pkg/$rid/" && (cd "pkg/$rid" && 7z a "../../pagehaus-$rid.zip" . >/dev/null)
+            else
+              # Named, not ".": entries without "./", so "tar -xz pagehaus" finds the file with GNU tar too.
+              cp "out/$rid/pagehaus" "pkg/$rid/" && tar -czf "pagehaus-$rid.tar.gz" -C "pkg/$rid" pagehaus LICENSE README.md
+            fi
+          done
       - name: Run it
-        if: matrix.rid != 'osx-x64'   # an Intel binary on an Apple silicon runner
-        run: pkg/pagehaus* --version
+        run: |
+          for rid in ${{ matrix.rids }}; do
+            [ "$rid" = osx-x64 ] && continue   # an Intel binary on an Apple silicon runner
+            pkg/$rid/pagehaus* --version
+          done
       - uses: actions/upload-artifact@v4
         with:
-          name: ${{ matrix.rid }}
+          name: ${{ matrix.name }}
           path: pagehaus-*
 
   publish:
