@@ -92,9 +92,11 @@ counted online.
 
 A `_redirects` file at the top of the site sends old addresses to new ones, in the format Netlify and Cloudflare Pages
 use: one rule per line, `/old-page /new-page.html` (301 unless it ends in `302`), with `/blog/* /posts/:splat` and
-`/news/:year/:slug` for patterns. A rule only applies where nothing else is found, so it never hides a file. `serve`
-follows the rules as Pagehaus does, and `check` reports lines it can't read, redirects that go round in a circle, and
-doesn't count links a rule covers as broken. See [Redirects](https://pagehaus.app/help/redirects).
+`/news/:year/:slug` for patterns. Ending a rule in `200` shows another page at the same address instead of
+redirecting: `/* /index.html 200` is what single-page apps (React, Vue, Vite) need. A rule only applies where nothing
+else is found, so it never hides a file. `serve` follows the rules as Pagehaus does, and `check` reports lines it can't
+read, redirects that go round in a circle, rewrites to a page that doesn't exist, and doesn't count links a rule covers
+as broken. See [Redirects](https://pagehaus.app/help/redirects).
 
 ## Building
 

@@ -104,11 +104,11 @@ public sealed class RedirectRulesTests
     }
 
     [Theory]
-    [InlineData("/a /b 307", "The status must be 301")]
+    [InlineData("/a /b 307", "The status must be 301 (moved for good), 302 (moved for now) or 200")]
     [InlineData("/a /b 404", "The status must be 301")]
     [InlineData("/a /b 301!", "! (redirect even where a page exists) isn't supported")]
     [InlineData("/a /b !", "! (redirect even where a page exists) isn't supported")]
-    [InlineData("/* /index.html 200", "200 (show another page at this address) isn't supported")]
+    [InlineData("/* https://app.example/ 200", "With 200 the new address must be a page on this site")]
     [InlineData("/a", "needs the old address and the new one")]
     [InlineData("/a /b 301 Country=us", "Conditions such as Country= aren't supported")]
     [InlineData("about /b", "The old address must start with /")]
@@ -212,5 +212,36 @@ public sealed class RedirectRulesTests
     {
         var rule = Assert.Single(RedirectRules.Parse("/Shop   https://shop.example/   302").Rules);
         Assert.Equal(new RedirectRule(1, "/Shop", "https://shop.example/", 302, External: true), rule);
+    }
+
+    [Fact]
+    public void A_200_rule_rewrites_to_a_page_of_the_site_without_redirecting()
+    {
+        var rules = RedirectRules.Parse("/old /new 301\n/app/* /app/index.html 200\n/* /index.html 200");
+        Assert.Empty(rules.Problems);
+
+        var app = rules.Match("/app/settings/profile", "?tab=2")!;
+        Assert.True(app.Rewrite);
+        Assert.Equal(200, app.Status);
+        Assert.Equal("/app/index.html", app.RewritePath);   // the visitor's query string isn't added to the page's path
+        Assert.Equal("/index.html", rules.Match("/about")!.RewritePath);
+
+        var moved = rules.Match("/old")!;                     // rules still apply in order, the first match wins
+        Assert.False(moved.Rewrite);
+        Assert.Equal("/new", moved.Location);
+    }
+
+    [Fact]
+    public void A_rewrite_can_use_the_rest_of_the_address()
+    {
+        var rules = RedirectRules.Parse("/docs/* /handbook/:splat 200");
+        Assert.Equal("/handbook/getting started/index.html", rules.Match("/docs/getting started/index.html")!.RewritePath);
+    }
+
+    [Fact]
+    public void Rewrites_never_count_as_redirect_loops()
+    {
+        var rules = RedirectRules.Parse("/a /b 301\n/b /a 200\n/* /index.html 200");
+        Assert.Empty(rules.FindLoops(path => path == "/index.html"));
     }
 }

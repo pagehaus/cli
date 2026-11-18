@@ -132,11 +132,43 @@ public sealed class SiteServer(string root, SsiProcessor ssi, LiveReload? reload
         if (File.Exists(file)
             && RedirectRules.Parse(await File.ReadAllTextAsync(file)).Match(ctx.Request.Path.Value ?? "/", ctx.Request.QueryString.Value) is { } to)
         {
+            if (to.Rewrite)
+            {
+                // Status 200: show that page here, as on Pagehaus. One step only: a rewrite never leads to another rule.
+                if (!await RewriteAsync(ctx, to.RewritePath)) await NotFoundAsync(ctx);
+                return;
+            }
             ctx.Response.StatusCode = to.Status;
             ctx.Response.Headers.Location = to.Location;
             return;
         }
         await NotFoundAsync(ctx);
+    }
+
+    /// <summary>Serves the page a rewrite rule names, or returns false when there's nothing there.</summary>
+    private async Task<bool> RewriteAsync(HttpContext ctx, string path)
+    {
+        var rel = path.Contains('\\') ? null : SitePath.Normalize(path);
+        if (rel is null || IsHidden(rel) || rel == RedirectRules.FileName) return false;
+        var disk = SitePath.ToDisk(Root, rel);
+        if (Directory.Exists(disk))
+        {
+            if (SitePath.FindIndex(Root, rel) is not { } index) return false;
+            rel = index;
+            disk = SitePath.ToDisk(Root, rel);
+        }
+        else if (!File.Exists(disk)) return false;
+
+        if (SsiProcessor.IsSsiFile(rel))
+        {
+            await PageAsync(ctx, rel, disk, StatusCodes.Status200OK);
+            return true;
+        }
+        var info = new FileInfo(disk);
+        await Results.File(disk, ContentTypeFor(rel), lastModified: info.LastWriteTimeUtc,
+            entityTag: new EntityTagHeaderValue($"\"{info.Length:x}-{info.LastWriteTimeUtc.Ticks:x}\""),
+            enableRangeProcessing: true).ExecuteAsync(ctx);
+        return true;
     }
 
     private async Task NotFoundAsync(HttpContext ctx)

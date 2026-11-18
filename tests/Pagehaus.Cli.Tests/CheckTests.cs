@@ -179,4 +179,15 @@ public sealed class CheckTests : IDisposable
         Assert.StartsWith("line 2: ", Single(findings, "/includes/cart.html").Message);
         Assert.StartsWith("line 3: ", Single(findings, "newer syntax").Message);
     }
+
+    [Fact]
+    public async Task A_single_page_app_rule_covers_its_addresses_and_its_page_must_exist()
+    {
+        Write("index.html", Page("""<a href="/dashboard/settings">Settings</a>"""));
+        Write("_redirects", "/* /index.html 200");
+        Assert.Empty(await CheckAsync());                          // /dashboard/settings is the app's: not broken
+
+        Write("_redirects", "/* /app.html 200");
+        Assert.Contains("line 1: /app.html doesn't exist", Assert.Single(await CheckAsync()).Message);
+    }
 }

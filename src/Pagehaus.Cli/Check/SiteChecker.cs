@@ -74,6 +74,14 @@ public sealed partial class SiteChecker(SsiProcessor ssi)
                 Add(Severity.Problem, $"line {problem.Line}: {problem.Message} The line is skipped.", RedirectRules.FileName);
             foreach (var loop in _redirects.FindLoops(path => SitePath.Normalize(path) is { } rel && site.Exists(rel)))
                 Add(Severity.Problem, $"line {loop.Line}: {loop.Message}", RedirectRules.FileName);
+            // A rewrite (200) shows another page here: that page has to exist, or visitors get "not found".
+            foreach (var rule in _redirects.Rules.Where(r => r.Status == 200 && !r.To.Contains(':')))
+            {
+                var page = Uri.UnescapeDataString(rule.To.Split('?', '#')[0]);
+                if (SitePath.Normalize(page) is not { } target || !site.Exists(target))
+                    Add(Severity.Problem, $"line {rule.Line}: {rule.To} doesn't exist, so the addresses this rule covers show " +
+                                          "\"not found\".", RedirectRules.FileName);
+            }
             foreach (var rule in _redirects.Rules.Where(r => r.External))
                 Add(Severity.Warning, $"line {rule.Line} sends visitors to another website ({rule.To}): on Pagehaus that needs a Personal or Pro plan.",
                     RedirectRules.FileName);

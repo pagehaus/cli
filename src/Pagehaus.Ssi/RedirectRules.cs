@@ -3,8 +3,18 @@ using System.Text.RegularExpressions;
 
 namespace Pagehaus.Ssi;
 
-/// <summary>Where to send a request: <see cref="Location"/> is ready for the header (printable ASCII only).</summary>
-public sealed record Redirect(string Location, int Status);
+/// <summary>
+/// Where to send a request: <see cref="Location"/> is ready for the header (printable ASCII only). A
+/// <see cref="Rewrite"/> (status 200) isn't sent to the visitor: the host shows the page at <see cref="Location"/>,
+/// a path on the same site, at the address that was asked for.
+/// </summary>
+public sealed record Redirect(string Location, int Status)
+{
+    public bool Rewrite => Status == 200;
+
+    /// <summary>For a rewrite, the page to show: the path of <see cref="Location"/>, decoded, without query or fragment.</summary>
+    public string RewritePath => Uri.UnescapeDataString(Location.Split('?', '#')[0]);
+}
 
 /// <summary>A line of a _redirects file that was skipped, and why, in plain words.</summary>
 public sealed record RedirectProblem(int Line, string Message);
@@ -14,9 +24,10 @@ public sealed record RedirectRule(int Line, string From, string To, int Status, 
 
 /// <summary>
 /// A site's _redirects file, in the format Netlify and Cloudflare Pages use, the part of it that makes sense for plain
-/// sites: one rule per line, <c>/old /new [301|302]</c>, a <c>*</c> at the end of the old address with <c>:splat</c> in
+/// sites: one rule per line, <c>/old /new [301|302|200]</c>, a <c>*</c> at the end of the old address with <c>:splat</c> in
 /// the new one, and <c>:name</c> for one part of the path. Matching ignores case and a trailing slash; the first match
-/// wins. Rules are only for addresses that would otherwise be "not found", which is up to the host. Lines that can't
+/// wins. Status 200 is a rewrite: the visitor stays at the address and sees another page of the site, which is what
+/// single-page apps need (<c>/* /index.html 200</c>). Rules are only for addresses that would otherwise be "not found", which is up to the host. Lines that can't
 /// be read are skipped and listed in <see cref="Problems"/>; the rest still work.
 /// </summary>
 public sealed partial class RedirectRules
@@ -94,15 +105,17 @@ public sealed partial class RedirectRules
             if (s.Contains('!'))
                 return Fail<Rule>(out problem, "! (redirect even where a page exists) isn't supported: a rule only applies where " +
                                          "nothing is found, so remove the page instead.");
-            if (s == "200")
-                return Fail<Rule>(out problem, "200 (show another page at this address) isn't supported: use 301 or 302.");
-            if (s is not ("301" or "302"))
-                return Fail<Rule>(out problem, "The status must be 301 (moved for good) or 302 (moved for now).");
-            status = s == "301" ? 301 : 302;
+            if (s is not ("301" or "302" or "200"))
+                return Fail<Rule>(out problem, "The status must be 301 (moved for good), 302 (moved for now) or 200 " +
+                                               "(show another page of this site at the same address).");
+            status = int.Parse(s);
         }
 
         if (ParseSource(parts[0], out problem) is not { } source) return null;
         if (ParseTarget(parts[1], source, out problem) is not { } target) return null;
+        if (status == 200 && target.External)
+            return Fail<Rule>(out problem, "With 200 the new address must be a page on this site, starting with /: " +
+                                           "it shows that page here instead of sending visitors away.");
         if (target.External && externalRefused is not null) return Fail<Rule>(out problem, externalRefused);
         if (!target.External && !source.Splat && source.Names.Count == 0 && target.Placeholders == 0
             && Key(target.PathPart) == Key(source.Segments))
@@ -203,7 +216,8 @@ public sealed partial class RedirectRules
         var segments = path.Split('/', StringSplitOptions.RemoveEmptyEntries);
         foreach (var rule in _rules)
             if (rule.TryMatch(segments) is { } values)
-                return new Redirect(rule.Location(values, queryString), rule.Status);
+                // A rewrite keeps the visitor's own query string: it isn't added to the page's path.
+                return new Redirect(rule.Location(values, rule.Status == 200 ? null : queryString), rule.Status);
         return null;
     }
 
@@ -217,7 +231,8 @@ public sealed partial class RedirectRules
         var loops = new List<RedirectProblem>();
         foreach (var rule in _rules)
         {
-            if (rule.Target.External || rule.Source.Splat || rule.Source.Names.Count > 0) continue;
+            // A rewrite doesn't send the browser anywhere, so it can't start a loop.
+            if (rule.Status == 200 || rule.Target.External || rule.Source.Splat || rule.Source.Names.Count > 0) continue;
             var start = Key(rule.Source.Segments);
             if (exists("/" + string.Join('/', rule.Source.Segments))) continue;   // the page is served; the rule never applies
             var path = "/" + string.Join('/', rule.Target.PathPart);
@@ -226,7 +241,7 @@ public sealed partial class RedirectRules
             {
                 if (exists(path)) break;
                 var next = Match(path);
-                if (next is null || IsExternal(next.Location)) break;
+                if (next is null || next.Rewrite || IsExternal(next.Location)) break;
                 path = Uri.UnescapeDataString(next.Location.Split('?', '#')[0]);
                 trail.Add(path);
                 if (Key(path.Split('/', StringSplitOptions.RemoveEmptyEntries)) == start || hop >= MaxHops)

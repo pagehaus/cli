@@ -164,4 +164,22 @@ public sealed class ServeTests : IAsyncLifetime
     {
         Assert.StartsWith("""<a href="/blog/" aria-current="page">Blog</a>""", await _client.GetStringAsync("/blog/post.html"));
     }
+
+    [Fact]
+    public async Task A_200_rule_shows_another_page_at_the_same_address()
+    {
+        Write("_redirects", "/app/* /index.html 200\n/ghost/* /nowhere.html 200");
+
+        var app = await _client.GetAsync("/app/settings/profile?tab=2");
+        Assert.Equal(HttpStatusCode.OK, app.StatusCode);
+        Assert.Null(app.Headers.Location);
+        var html = await app.Content.ReadAsStringAsync();
+        Assert.Contains("<header>Home</header>", html);             // the page, with its includes
+        Assert.Contains("<p>Hi</p>", html);
+
+        Assert.Equal(HttpStatusCode.OK, (await _client.GetAsync("/style.css")).StatusCode);   // files are never rewritten
+        var ghost = await _client.GetAsync("/ghost/x");            // a rewrite to nothing: not found, no further rules
+        Assert.Equal(HttpStatusCode.NotFound, ghost.StatusCode);
+        Assert.Contains("<header>Lost</header>", await ghost.Content.ReadAsStringAsync());
+    }
 }
